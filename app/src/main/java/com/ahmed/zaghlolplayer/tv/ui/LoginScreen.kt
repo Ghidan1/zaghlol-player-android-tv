@@ -127,6 +127,7 @@ fun LoginScreen(vm: AppViewModel, onPickM3uFile: () -> Unit) {
                             enabled = !state.busy
                         )
                         GhostButton("اختبار الاتصال") { vm.testM3u(m3uUrl) }
+                        if (state.busy) GhostButton("إلغاء") { vm.cancelLogin() }
                     }
                 }
                 "m3ufile" -> {
@@ -152,6 +153,7 @@ fun LoginScreen(vm: AppViewModel, onPickM3uFile: () -> Unit) {
                             enabled = !state.busy
                         )
                         GhostButton("اختبار الاتصال") { vm.testXtream(xServer, xUser, xPass) }
+                        if (state.busy) GhostButton("إلغاء") { vm.cancelLogin() }
                     }
                 }
                 "demo" -> {
@@ -233,7 +235,7 @@ fun LoginScreen(vm: AppViewModel, onPickM3uFile: () -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "Zaghlol Player v1.0.2 — للتلفزيون",
+            text = "Zaghlol Player v1.0.3 — للتلفزيون",
             color = ZaghlolColors.Dim,
             fontSize = 15.sp
         )

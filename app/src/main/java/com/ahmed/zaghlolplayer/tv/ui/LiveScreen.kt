@@ -235,7 +235,10 @@ fun LiveView(vm: AppViewModel, state: UiState) {
     // v1.0.2 nothing ever requested focus here, so DOWN from the top bar
     // landed on the big video box (or nowhere) and the lists never moved.
     val catFocus = remember { FocusRequester() }
-    LaunchedEffect(data) {
+    // Keyed on the login id (not the whole data object): background merges
+    // of movies/series replace `data` later, and must not yank the focus
+    // back to "الكل" while the user is browsing.
+    LaunchedEffect(data?.login?.id) {
         if (data != null && data.channels.isNotEmpty()) {
             delay(500)
             catFocus.requestFocus()

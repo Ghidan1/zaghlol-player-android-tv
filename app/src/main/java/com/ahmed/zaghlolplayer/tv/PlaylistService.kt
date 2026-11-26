@@ -2,8 +2,6 @@ package com.ahmed.zaghlolplayer.tv
 
 import android.util.Xml
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -159,12 +157,20 @@ object PlaylistService {
 
     // ---------------- M3U ----------------
 
-    fun parseM3u(text: String, login: LoginProfile): PlaylistData {
+    /**
+     * Incremental M3U parser: feed lines one at a time — from a whole String
+     * or from a live network stream — and build the playlist at the end.
+     * Streaming matters because this panel drops ("Connection reset") huge
+     * playlist downloads; buffering the whole file first fails before a
+     * single channel is seen, while the streamed parser keeps everything
+     * parsed up to the reset.
+     */
+    class M3uParser(private val login: LoginProfile) {
         val liveCatMap = linkedMapOf<String, String>() // canonical key (lowercase) -> first-seen spelling
         val vodCatMap = linkedMapOf<String, String>()
         val serCatMap = linkedMapOf<String, String>()
         val seriesMap = linkedMapOf<String, SerieItem>()
-        fun canonical(map: MutableMap<String, String>, gRaw: String): String {
+        private fun canonical(map: MutableMap<String, String>, gRaw: String): String {
             var g = gRaw.trim()
             if (g.isEmpty()) g = "All Channels"
             val key = g.lowercase(Locale.ROOT)
@@ -177,24 +183,29 @@ object PlaylistService {
         var pendingExtGrp = ""
         var pending = false
 
-        // Split on \r\n, \n AND lone \r (some panels emit old-Mac line endings).
-        val lines = text.split(Regex("\r\n|\n|\r"))
-        for (rawLine in lines) {
+        /** True once a playlist marker (#EXTM3U / #EXTINF) has been seen. */
+        var sawMarker = false
+            private set
+
+        fun acceptLine(rawLine: String) {
             val line = rawLine.trim()
-            if (line.isEmpty()) continue
+            if (line.isEmpty()) return
+            if (line.startsWith("#EXTM3U", ignoreCase = true) ||
+                line.startsWith("#EXTINF", ignoreCase = true)
+            ) sawMarker = true
             if (line.startsWith("#EXTINF", ignoreCase = true)) {
                 val comma = line.lastIndexOf(',')
                 pendingAttrs = if (comma > 0) line.substring(0, comma) else line
                 pendingName = if (comma > 0 && comma + 1 < line.length) line.substring(comma + 1).trim() else ""
                 pendingExtGrp = ""
                 pending = true
-                continue
+                return
             }
             if (line.startsWith("#EXTGRP:", ignoreCase = true)) {
                 pendingExtGrp = line.substring("#EXTGRP:".length).trim()
-                continue
+                return
             }
-            if (line.startsWith("#")) continue
+            if (line.startsWith("#")) return
             if (pending && (line.startsWith("http", ignoreCase = true) || line.contains("://"))) {
                 val attrs = parseAttrs(pendingAttrs)
                 var name = pendingName
@@ -285,24 +296,96 @@ object PlaylistService {
                 pending = false
             }
         }
-        // Categories in the playlist's OWN order (first appearance), NOT alphabetical.
-        val liveCats = liveCatMap.values.map { Category(it, it) }
-        val vodCats = vodCatMap.values.map { Category(it, it) }
-        val serCats = serCatMap.values.map { Category(it, it) }
-        for (s in seriesMap.values) {
-            for (eps in s.episodes.values) eps.sortBy { it.episodeNum }
+
+        fun build(): PlaylistData {
+            // Categories in the playlist's OWN order (first appearance), NOT alphabetical.
+            val liveCats = liveCatMap.values.map { Category(it, it) }
+            val vodCats = vodCatMap.values.map { Category(it, it) }
+            val serCats = serCatMap.values.map { Category(it, it) }
+            for (s in seriesMap.values) {
+                for (eps in s.episodes.values) eps.sortBy { it.episodeNum }
+            }
+            // Real counts (single source of truth).
+            for (c in liveCats) c.count = channels.count { it.categoryId.equals(c.id, ignoreCase = true) }
+            for (c in vodCats) c.count = movies.count { it.categoryId.equals(c.id, ignoreCase = true) }
+            for (c in serCats) c.count = seriesMap.values.count { it.categoryId.equals(c.id, ignoreCase = true) }
+            return PlaylistData(
+                login = login,
+                liveCategories = liveCats, channels = channels,
+                vodCategories = vodCats, movies = movies,
+                seriesCategories = serCats, series = seriesMap.values.toList()
+            )
         }
-        // Real counts (single source of truth).
-        for (c in liveCats) c.count = channels.count { it.categoryId.equals(c.id, ignoreCase = true) }
-        for (c in vodCats) c.count = movies.count { it.categoryId.equals(c.id, ignoreCase = true) }
-        for (c in serCats) c.count = seriesMap.values.count { it.categoryId.equals(c.id, ignoreCase = true) }
-        return PlaylistData(
-            login = login,
-            liveCategories = liveCats, channels = channels,
-            vodCategories = vodCats, movies = movies,
-            seriesCategories = serCats, series = seriesMap.values.toList()
-        )
     }
+
+    /** Parse a whole M3U text (local file / already-downloaded text). */
+    fun parseM3u(text: String, login: LoginProfile): PlaylistData {
+        val parser = M3uParser(login)
+        // Split on \r\n, \n AND lone \r (some panels emit old-Mac line endings).
+        for (line in text.split(Regex("\r\n|\n|\r"))) parser.acceptLine(line)
+        return parser.build()
+    }
+
+    /**
+     * Downloads an M3U playlist and parses it WHILE it streams in, line by
+     * line, instead of buffering the whole file first. The panel is slow and
+     * resets long connections, so a full download of a 60k-entry playlist
+     * often dies mid-way ("Connection reset"). Returns (data, errorAr):
+     * exactly one of them is set. The total budget caps the whole
+     * download+parse; each socket read has its own shorter timeout so a
+     * stalled connection fails fast instead of hanging.
+     */
+    suspend fun fetchAndParseM3u(
+        url: String,
+        login: LoginProfile,
+        totalBudgetSec: Int = 150
+    ): Pair<PlaylistData?, String> = withContext(Dispatchers.IO) {
+        val start = System.currentTimeMillis()
+        val budgetMs = totalBudgetSec * 1000L
+        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) {
+            return@withContext null to "الرابط غير صحيح — لازم يبدأ بـ http:// أو https://"
+        }
+        try {
+            val conn = openConnection(url, 30)
+            conn.readTimeout = 45_000
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                return@withContext null to "السيرفر رد بالخطأ $code — تأكد من صحة الرابط وبيانات الاشتراك"
+            }
+            val encoding = conn.contentEncoding ?: ""
+            var stream = conn.inputStream
+            if (encoding.contains("gzip", ignoreCase = true)) stream = GZIPInputStream(stream)
+            val reader = BufferedReader(InputStreamReader(stream, Charsets.UTF_8))
+            val parser = M3uParser(login)
+            var lines = 0
+            var timedOut = false
+            reader.use {
+                while (true) {
+                    val line = it.readLine() ?: break
+                    parser.acceptLine(line)
+                    if (++lines % 500 == 0 && System.currentTimeMillis() - start > budgetMs) {
+                        timedOut = true
+                        break
+                    }
+                }
+            }
+            if (timedOut) {
+                return@withContext null to "انتهت المهلة ($totalBudgetSec ثانية) أثناء تحميل القائمة — السيرفر بطيء جداً. جرّب تسجيل الدخول بـ Xtream بدل رابط M3U."
+            }
+            if (!parser.sawMarker) {
+                return@withContext null to "السيرفر ردّ برد ليس قائمة M3U — تأكد من صحة الرابط وبيانات الاشتراك"
+            }
+            parser.build() to ""
+        } catch (e: java.net.SocketTimeoutException) {
+            null to "انتهت المهلة أثناء تحميل القائمة — السيرفر بطيء أو لا يرد. جرّب تسجيل الدخول بـ Xtream بدل رابط M3U."
+        } catch (e: java.io.IOException) {
+            null to "تعذّر الاتصال بالسيرفر أثناء تحميل القائمة: " + cleanError(e.message) +
+                " — السيرفر يقطع تحميل القوائم الكبيرة، جرّب تسجيل الدخول بـ Xtream بدل رابط M3U."
+        } catch (e: Exception) {
+            null to "خطأ أثناء التحميل: " + cleanError(e.message)
+        }
+    }
+
 
     private fun parseAttrs(extinf: String): Map<String, String> {
         val d = mutableMapOf<String, String>()
@@ -369,8 +452,8 @@ object PlaylistService {
             return url
         }
 
-        private suspend fun getJson(url: String): JSONObject? {
-            val r = fetchText(url, 30)
+        private suspend fun getJson(url: String, timeoutSec: Int = 30): JSONObject? {
+            val r = fetchText(url, timeoutSec)
             if (!r.ok || r.text.isNullOrBlank()) return null
             return try {
                 JSONObject(r.text)
@@ -379,8 +462,8 @@ object PlaylistService {
             }
         }
 
-        private suspend fun getJsonArray(url: String): JSONArray? {
-            val r = fetchText(url, 30)
+        private suspend fun getJsonArray(url: String, timeoutSec: Int = 30): JSONArray? {
+            val r = fetchText(url, timeoutSec)
             if (!r.ok || r.text.isNullOrBlank()) return null
             return try {
                 JSONArray(r.text)
@@ -420,8 +503,8 @@ object PlaylistService {
             }
         }
 
-        private suspend fun getCategories(action: String): List<Category> {
-            val arr = getJsonArray(apiUrl(action)) ?: return emptyList()
+        private suspend fun getCategories(action: String, timeoutSec: Int = 30): List<Category> {
+            val arr = getJsonArray(apiUrl(action), timeoutSec) ?: return emptyList()
             val list = mutableListOf<Category>()
             for (i in 0 until arr.length()) {
                 val el = arr.optJSONObject(i) ?: continue
@@ -431,32 +514,32 @@ object PlaylistService {
         }
 
         /** One retry: a slow panel often drops a single request in a burst. */
-        private suspend fun getCategoriesRetry(action: String): List<Category> {
-            val first = getCategories(action)
+        private suspend fun getCategoriesRetry(action: String, timeoutSec: Int = 60): List<Category> {
+            val first = getCategories(action, timeoutSec)
             if (first.isNotEmpty()) return first
             delay(800)
-            return getCategories(action)
+            return getCategories(action, timeoutSec)
         }
 
-        private suspend fun getLiveStreamsRetry(): List<Channel> {
-            val first = getLiveStreams()
+        private suspend fun getLiveStreamsRetry(timeoutSec: Int = 60): List<Channel> {
+            val first = getLiveStreams(timeoutSec)
             if (first.isNotEmpty()) return first
             delay(800)
-            return getLiveStreams()
+            return getLiveStreams(timeoutSec)
         }
 
-        private suspend fun getVodStreamsRetry(): List<VodItem> {
-            val first = getVodStreams()
+        private suspend fun getVodStreamsRetry(timeoutSec: Int = 60): List<VodItem> {
+            val first = getVodStreams(timeoutSec)
             if (first.isNotEmpty()) return first
             delay(800)
-            return getVodStreams()
+            return getVodStreams(timeoutSec)
         }
 
-        private suspend fun getSeriesRetry(): List<SerieItem> {
-            val first = getSeries()
+        private suspend fun getSeriesRetry(timeoutSec: Int = 60): List<SerieItem> {
+            val first = getSeries(timeoutSec)
             if (first.isNotEmpty()) return first
             delay(800)
-            return getSeries()
+            return getSeries(timeoutSec)
         }
 
         /** Last-resort categories: derive them from the items themselves so the
@@ -477,48 +560,78 @@ object PlaylistService {
             return ""
         }
 
+        /** Attach display names (case-insensitive) and real counts to a
+         *  categories list, deriving the list from the items themselves when
+         *  the categories call came back empty. */
+        private fun finalizeCats(
+            catsIn: List<Category>,
+            itemCatIds: List<String>,
+            itemCount: (Category) -> Int
+        ): List<Category> {
+            var cats = catsIn
+            if (cats.isEmpty() && itemCatIds.isNotEmpty())
+                cats = deriveCategories(itemCatIds)
+            for (c in cats) c.count = itemCount(c)
+            return cats
+        }
+
         /**
-         * The 6 catalogue calls, in two phases: the 3 small category calls in
-         * parallel, then the 3 big lists one at a time. A slow panel chokes on
-         * all six at once and silently drops some of them — that is how the
-         * categories came back empty while 11,396 channels loaded, and the
-         * series list came back 0. Each call gets one retry, and a missing
-         * categories list is rebuilt from the items themselves.
+         * Progressive loading (v1.0.3): the v1.0.2 approach loaded all 6
+         * catalogue calls before entering the app, behind one 90s global
+         * timeout. On this slow panel the sequential big lists take longer
+         * than 90s in total, so the login counted the full 90 seconds and
+         * then failed — even though live TV was usable much earlier.
+         * Now entry happens as soon as LIVE TV is ready; movies and series
+         * load in the background afterwards, each independently, and a
+         * failure in one section never blocks the others or kicks the user
+         * back to login.
          */
-        suspend fun loadAll(login: LoginProfile): PlaylistData = coroutineScope {
-            val tLiveCats = async { getCategoriesRetry("get_live_categories") }
-            val tVodCats = async { getCategoriesRetry("get_vod_categories") }
-            val tSerCats = async { getCategoriesRetry("get_series_categories") }
-            var liveCats = tLiveCats.await()
-            var vodCats = tVodCats.await()
-            var serCats = tSerCats.await()
-            val live = getLiveStreamsRetry()
-            val vod = getVodStreamsRetry()
-            val ser = getSeriesRetry()
-            if (liveCats.isEmpty() && live.isNotEmpty())
-                liveCats = deriveCategories(live.map { it.categoryId })
-            if (vodCats.isEmpty() && vod.isNotEmpty())
-                vodCats = deriveCategories(vod.map { it.categoryId })
-            if (serCats.isEmpty() && ser.isNotEmpty())
-                serCats = deriveCategories(ser.map { it.categoryId })
-            val catNames = liveCats.associate { it.id to it.name }
-            for (ch in live) ch.categoryName = nameFor(catNames, ch.categoryId)
-            val vodNames = vodCats.associate { it.id to it.name }
-            for (m in vod) m.categoryName = nameFor(vodNames, m.categoryId)
-            val serNames = serCats.associate { it.id to it.name }
-            for (s in ser) s.categoryName = nameFor(serNames, s.categoryId)
-            for (c in liveCats) c.count = live.count { it.categoryId.equals(c.id, ignoreCase = true) }
-            for (c in vodCats) c.count = vod.count { it.categoryId.equals(c.id, ignoreCase = true) }
-            for (c in serCats) c.count = ser.count { it.categoryId.equals(c.id, ignoreCase = true) }
-            PlaylistData(
+
+        /** Phase 1 — live TV only. Enter the app as soon as this returns. */
+        suspend fun loadLive(login: LoginProfile, timeoutSec: Int = 60): PlaylistData {
+            val liveCats0 = getCategoriesRetry("get_live_categories", timeoutSec)
+            val live = getLiveStreamsRetry(timeoutSec)
+            val liveCats = finalizeCats(
+                liveCats0, live.map { it.categoryId },
+                { c -> live.count { it.categoryId.equals(c.id, ignoreCase = true) } }
+            )
+            val names = liveCats.associate { it.id to it.name }
+            for (ch in live) ch.categoryName = nameFor(names, ch.categoryId)
+            return PlaylistData(
                 login = login, liveCategories = liveCats, channels = live,
-                vodCategories = vodCats, movies = vod,
-                seriesCategories = serCats, series = ser
+                vodCategories = emptyList(), movies = emptyList(),
+                seriesCategories = emptyList(), series = emptyList()
             )
         }
 
-        suspend fun getLiveStreams(): List<Channel> {
-            val arr = getJsonArray(apiUrl("get_live_streams")) ?: return emptyList()
+        /** Phase 2a — movies, loaded in the background after entry. */
+        suspend fun loadVod(login: LoginProfile, timeoutSec: Int = 60): Pair<List<Category>, List<VodItem>> {
+            val vodCats0 = getCategoriesRetry("get_vod_categories", timeoutSec)
+            val vod = getVodStreamsRetry(timeoutSec)
+            val vodCats = finalizeCats(
+                vodCats0, vod.map { it.categoryId },
+                { c -> vod.count { it.categoryId.equals(c.id, ignoreCase = true) } }
+            )
+            val names = vodCats.associate { it.id to it.name }
+            for (m in vod) m.categoryName = nameFor(names, m.categoryId)
+            return vodCats to vod
+        }
+
+        /** Phase 2b — series, loaded in the background after entry. */
+        suspend fun loadSeries(login: LoginProfile, timeoutSec: Int = 60): Pair<List<Category>, List<SerieItem>> {
+            val serCats0 = getCategoriesRetry("get_series_categories", timeoutSec)
+            val ser = getSeriesRetry(timeoutSec)
+            val serCats = finalizeCats(
+                serCats0, ser.map { it.categoryId },
+                { c -> ser.count { it.categoryId.equals(c.id, ignoreCase = true) } }
+            )
+            val names = serCats.associate { it.id to it.name }
+            for (s in ser) s.categoryName = nameFor(names, s.categoryId)
+            return serCats to ser
+        }
+
+        suspend fun getLiveStreams(timeoutSec: Int = 30): List<Channel> {
+            val arr = getJsonArray(apiUrl("get_live_streams"), timeoutSec) ?: return emptyList()
             val list = mutableListOf<Channel>()
             for (i in 0 until arr.length()) {
                 val el = arr.optJSONObject(i) ?: continue
@@ -535,8 +648,8 @@ object PlaylistService {
             return list
         }
 
-        suspend fun getVodStreams(): List<VodItem> {
-            val arr = getJsonArray(apiUrl("get_vod_streams")) ?: return emptyList()
+        suspend fun getVodStreams(timeoutSec: Int = 30): List<VodItem> {
+            val arr = getJsonArray(apiUrl("get_vod_streams"), timeoutSec) ?: return emptyList()
             val list = mutableListOf<VodItem>()
             for (i in 0 until arr.length()) {
                 val el = arr.optJSONObject(i) ?: continue
@@ -556,8 +669,8 @@ object PlaylistService {
             return list
         }
 
-        suspend fun getSeries(): List<SerieItem> {
-            val arr = getJsonArray(apiUrl("get_series")) ?: return emptyList()
+        suspend fun getSeries(timeoutSec: Int = 30): List<SerieItem> {
+            val arr = getJsonArray(apiUrl("get_series"), timeoutSec) ?: return emptyList()
             val list = mutableListOf<SerieItem>()
             for (i in 0 until arr.length()) {
                 val el = arr.optJSONObject(i) ?: continue

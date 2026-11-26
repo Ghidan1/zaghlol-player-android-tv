@@ -320,7 +320,7 @@ fun SettingsScreen(vm: AppViewModel, state: UiState) {
         Text(text = "حول التطبيق", color = ZaghlolColors.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Zaghlol Player v1.0.2 — نسخة Android TV\nنفس واجهة ووظائف نسخة الويندوز v2.0.3\nبيانات الدخول محفوظة على جهاز التلفزيون فقط.",
+            text = "Zaghlol Player v1.0.3 — نسخة Android TV\nنفس واجهة ووظائف نسخة الويندوز v2.0.3\nبيانات الدخول محفوظة على جهاز التلفزيون فقط.",
             color = ZaghlolColors.Muted,
             fontSize = 17.sp,
             lineHeight = 26.sp

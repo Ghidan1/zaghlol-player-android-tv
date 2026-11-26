@@ -6,14 +6,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -59,6 +57,10 @@ data class UiState(
     val guideDay: Int = 0,
     val guidePrograms: List<EpgProgram> = emptyList(),
     val guideLoading: Boolean = false,
+    val vodLoading: Boolean = false,
+    val seriesLoading: Boolean = false,
+    val vodError: String = "",
+    val seriesError: String = "",
     val movieDialog: VodItem? = null,
     val serieDialog: SerieItem? = null,
     val serieDialogSeason: String = "1",
@@ -90,6 +92,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var busyJob: Job? = null
+    private var loginJob: Job? = null
+    private var vodJob: Job? = null
+    private var seriesJob: Job? = null
     private var toastJob: Job? = null
     private var xmlTv: Map<String, List<EpgProgram>> = emptyMap()
     private var xmlTvLoaded = false
@@ -230,49 +235,84 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return job
     }
 
-    private fun stopBusy() {
-        busyJob?.cancel()
-        busyJob = null
-        _state.update { it.copy(busy = false) }
+    /**
+     * Stops a specific busy ticker. Only clears the busy flag when the given
+     * job is still the current one — a cancelled login's `finally` must not
+     * kill a newer login's ticker that started after the cancel.
+     */
+    private fun stopBusy(job: Job? = null) {
+        val target = job ?: busyJob
+        target?.cancel()
+        if (job == null || busyJob === job) {
+            busyJob = null
+            _state.update { it.copy(busy = false) }
+        }
+    }
+
+    /** Cancel button on the login screen: stops a stuck login attempt. */
+    fun cancelLogin() {
+        loginJob?.cancel()
+        loginJob = null
+        stopBusy()
+        _state.update { it.copy(loginError = "تم الإلغاء — جرّب مرة أخرى") }
+    }
+
+    private fun cancelBackgroundLoads() {
+        vodJob?.cancel()
+        seriesJob?.cancel()
+        vodJob = null
+        seriesJob = null
     }
 
     fun loginM3u(url: String, name: String, silent: Boolean = false) {
-        viewModelScope.launch {
+        loginJob?.cancel()
+        loginJob = viewModelScope.launch {
             if (url.isBlank()) {
                 _state.update { it.copy(loginError = "من فضلك أدخل رابط M3U") }
                 return@launch
             }
-            startBusy()
+            cancelBackgroundLoads()
+            val busy = startBusy()
             try {
-                val r = PlaylistService.fetchText(url.trim(), 60)
-                if (!r.ok) {
-                    _state.update { it.copy(loginError = r.errorAr) }
-                    return@launch
-                }
-                val text = r.text ?: ""
-                if (!text.contains("#EXTM3U") && !text.contains("#EXTINF")) {
-                    _state.update { it.copy(loginError = "السيرفر ردّ برد ليس قائمة M3U — تأكد من صحة الرابط وبيانات الاشتراك") }
-                    return@launch
-                }
                 val login = LoginProfile(
                     id = UUID.randomUUID().toString(), name = name.ifBlank { "M3U Playlist" },
                     kind = LoginKind.M3U_URL, m3uUrl = url.trim()
                 )
-                val data = PlaylistService.parseM3u(text, login)
-                if (data.channels.isEmpty() && data.movies.isEmpty() && data.series.isEmpty()) {
+                // Stream-parse the playlist as it downloads (see
+                // fetchAndParseM3u): this panel resets huge downloads, so
+                // buffering the whole file first usually dies mid-way.
+                // One full retry, then a plain error telling the user to
+                // try Xtream instead — the proven-working path on this panel.
+                var data: PlaylistData? = null
+                var err = ""
+                for (attempt in 0 until 2) {
+                    val (d, e) = PlaylistService.fetchAndParseM3u(url.trim(), login)
+                    if (d != null) {
+                        data = d
+                        break
+                    }
+                    err = e
+                    if (attempt == 0) delay(1000)
+                }
+                val parsed = data
+                if (parsed == null) {
+                    _state.update { it.copy(loginError = err) }
+                    return@launch
+                }
+                if (parsed.channels.isEmpty() && parsed.movies.isEmpty() && parsed.series.isEmpty()) {
                     _state.update { it.copy(loginError = "القائمة فارغة — لا توجد قنوات في هذا الرابط") }
                     return@launch
                 }
-                enterApp(data, login, null)
+                enterApp(parsed, login, null)
             } finally {
-                stopBusy()
+                stopBusy(busy)
             }
         }
     }
 
     fun loginM3uText(text: String, name: String) {
         viewModelScope.launch {
-            startBusy()
+            val busy = startBusy()
             try {
                 val login = LoginProfile(
                     id = UUID.randomUUID().toString(), name = name,
@@ -285,7 +325,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 enterApp(data, login, null)
             } finally {
-                stopBusy()
+                stopBusy(busy)
             }
         }
     }
@@ -310,7 +350,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 id = UUID.randomUUID().toString(), name = "M3U File: $fileName",
                 kind = LoginKind.M3U_FILE, m3uPath = uri.toString()
             )
-            startBusy()
+            val busy = startBusy()
             try {
                 val data = PlaylistService.parseM3u(text, login)
                 if (data.channels.isEmpty() && data.movies.isEmpty() && data.series.isEmpty()) {
@@ -319,20 +359,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 enterApp(data, login, null)
             } finally {
-                stopBusy()
+                stopBusy(busy)
             }
         }
     }
 
     fun loginXtream(serverRaw: String, user: String, pass: String, silent: Boolean = false) {
-        viewModelScope.launch {
+        loginJob?.cancel()
+        loginJob = viewModelScope.launch {
             if (serverRaw.isBlank() || user.isBlank()) {
                 _state.update { it.copy(loginError = "أدخل السيرفر واسم المستخدم وكلمة المرور") }
                 return@launch
             }
             var server = serverRaw.trim().trimEnd('/')
             if (!server.startsWith("http", ignoreCase = true)) server = "http://$server"
-            startBusy()
+            cancelBackgroundLoads()
+            val busy = startBusy()
             try {
                 val client = PlaylistService.XtreamClient(server, user.trim(), pass)
                 val (authed, authErr) = client.authenticateDetailed()
@@ -344,24 +386,84 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     id = UUID.randomUUID().toString(), name = "Xtream",
                     kind = LoginKind.XTREAM, server = server, username = user.trim(), password = pass
                 )
-                // Hard global timeout: the whole login must finish in 90s.
-                // This panel is slow — a previous login took ~55s — so 25s was
-                // cutting the big catalogue downloads short.
-                val data = try {
-                    withTimeout(90_000) { client.loadAll(login) }
-                } catch (e: TimeoutCancellationException) {
-                    _state.update { it.copy(loginError = "انتهت المهلة (90 ثانية) — السيرفر بطيء أو لا يرد. جرّب «اختبار الاتصال» أولاً.") }
+                // Progressive entry (v1.0.3): NO global timeout any more. The
+                // v1.0.2 login wrapped all 6 catalogue calls in one 90s
+                // timeout, and on this slow panel the sequential big lists
+                // take longer than 90s in total — so the login counted the
+                // full 90 seconds and then failed, even though live TV was
+                // already usable. Now only the LIVE phase gates entry (each
+                // call has its own generous 60s timeout + one retry), and
+                // movies/series load in the background afterwards.
+                val liveData = client.loadLive(login)
+                if (liveData.channels.isEmpty()) {
+                    _state.update { it.copy(loginError = "تم تسجيل الدخول لكن لم تصل أي قنوات مباشرة — السيرفر بطيء، جرّب مرة أخرى") }
                     return@launch
                 }
-                if (data.channels.isEmpty() && data.movies.isEmpty() && data.series.isEmpty()) {
-                    _state.update { it.copy(loginError = "تم تسجيل الدخول لكن الحساب لا يحتوي على قنوات أو أفلام أو مسلسلات") }
-                    return@launch
-                }
-                enterApp(data, login, client)
+                enterApp(liveData, login, client, backgroundPending = true)
+                loadVodInBackground(client, login)
+                loadSeriesInBackground(client, login)
             } finally {
-                stopBusy()
+                stopBusy(busy)
             }
         }
+    }
+
+    /**
+     * Background section loaders: each section loads independently after
+     * entry, with its own loading state and retry. A failure here only marks
+     * that tab as failed (with a retry button) — it never blocks the other
+     * sections and never kicks the user back to login.
+     */
+    private fun loadVodInBackground(client: PlaylistService.XtreamClient, login: LoginProfile) {
+        vodJob?.cancel()
+        vodJob = viewModelScope.launch {
+            _state.update { it.copy(vodLoading = true, vodError = "") }
+            val (cats, movies) = client.loadVod(login)
+            val cur = _state.value.data
+            if (cur == null || cur.login.id != login.id) return@launch
+            _state.update {
+                it.copy(
+                    data = cur.copy(vodCategories = cats, movies = movies),
+                    vodLoading = false,
+                    vodError = if (movies.isEmpty() && cats.isEmpty()) "تعذّر تحميل الأفلام — السيرفر بطيء" else ""
+                )
+            }
+            if (movies.isNotEmpty()) showToast("تم تحميل ${movies.size} فيلم")
+        }
+    }
+
+    private fun loadSeriesInBackground(client: PlaylistService.XtreamClient, login: LoginProfile) {
+        seriesJob?.cancel()
+        seriesJob = viewModelScope.launch {
+            _state.update { it.copy(seriesLoading = true, seriesError = "") }
+            val (cats, series) = client.loadSeries(login)
+            val cur = _state.value.data
+            if (cur == null || cur.login.id != login.id) return@launch
+            _state.update {
+                it.copy(
+                    data = cur.copy(seriesCategories = cats, series = series),
+                    seriesLoading = false,
+                    seriesError = if (series.isEmpty() && cats.isEmpty()) "تعذّر تحميل المسلسلات — السيرفر بطيء" else ""
+                )
+            }
+            if (series.isNotEmpty()) showToast("تم تحميل ${series.size} مسلسل")
+        }
+    }
+
+    fun retryVod() {
+        val st = _state.value
+        val client = st.xtream ?: return
+        val login = st.data?.login ?: return
+        if (st.vodLoading) return
+        loadVodInBackground(client, login)
+    }
+
+    fun retrySeries() {
+        val st = _state.value
+        val client = st.xtream ?: return
+        val login = st.data?.login ?: return
+        if (st.seriesLoading) return
+        loadSeriesInBackground(client, login)
     }
 
     fun loginDemo() {
@@ -433,7 +535,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---------------- enter app ----------------
 
-    private fun enterApp(data: PlaylistData, login: LoginProfile, xtream: PlaylistService.XtreamClient?) {
+    private fun enterApp(
+        data: PlaylistData,
+        login: LoginProfile,
+        xtream: PlaylistService.XtreamClient?,
+        backgroundPending: Boolean = false
+    ) {
         store.rememberLogin(login)
         xmlTv = emptyMap()
         xmlTvLoaded = false
@@ -448,10 +555,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 seriesCat = "all", search = "", playKind = PlayKind.LIVE,
                 channel = null, vod = null, serie = null, episode = null,
                 nowTitle = "", nowTime = "", nextTitle = "", progress = 0f,
-                loginError = "", focusMode = false
+                loginError = "", focusMode = false,
+                vodLoading = false, seriesLoading = false, vodError = "", seriesError = ""
             )
         }
-        showToast("تم تحميل $nCh قناة في $nCat تصنيف • $nMov فيلم • $nSer مسلسل")
+        if (backgroundPending) {
+            showToast("تم تحميل $nCh قناة في $nCat تصنيف • الأفلام والمسلسلات بتتحمل في الخلفية")
+        } else {
+            showToast("تم تحميل $nCh قناة في $nCat تصنيف • $nMov فيلم • $nSer مسلسل")
+        }
         val first = visibleChannels().firstOrNull()
         if (first != null) playChannel(first)
     }
@@ -459,12 +571,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun logout() {
         saveCurrentResume()
         tvPlayer.stop()
+        cancelBackgroundLoads()
         store.lastLoginId = ""
         _state.update {
             it.copy(
                 screen = Screen.LOGIN, data = null, xtream = null, channel = null,
                 vod = null, serie = null, episode = null, tab = AppTab.LIVE,
-                logins = store.loadLogins(), loginError = "", focusMode = false
+                logins = store.loadLogins(), loginError = "", focusMode = false,
+                vodLoading = false, seriesLoading = false, vodError = "", seriesError = ""
             )
         }
     }

@@ -48,18 +48,18 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Publish release v1.0.2
+      - name: Publish release v1.0.3
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.2
-          name: Zaghlol Player for Android TV v1.0.2
+          tag_name: v1.0.3
+          name: Zaghlol Player for Android TV v1.0.3
           body: |
-            Zaghlol Player for Android TV v1.0.2 — fixes for three bugs found on a real Sharp Android TV:
-            - Categories no longer come back empty: the 6 catalogue calls now load in two phases (small category calls first, then the big lists one at a time) with a retry each, longer timeouts, and a fallback that rebuilds missing categories from the loaded channels/movies/series — the sidebar always shows categories with real counts.
-            - Series no longer show 0: same loading fix, so the ~15,000 series on an Xtream subscription actually load with covers (gradient title tiles as fallback).
-            - D-pad remote now works: the Live tab focuses the first category when the data loads, Movies/Series focus the first poster, and Guide/Settings focus their first control — arrows move through the lists and the lists scroll with the focus. OK selects/plays, Back behaves as before.
-            - Bonus: if an HLS (.m3u8) live stream fails to play, the player retries once via the plain .ts stream, and a real error code is shown instead of a black screen.
-            Everything else is unchanged from v1.0.1 (including the cleartext-HTTP fix for HTTP-only panels):
+            Zaghlol Player for Android TV v1.0.3 — fixes a loading-strategy regression from v1.0.2:
+            - Progressive loading: the app now enters as soon as LIVE TV is ready, instead of waiting for all 6 catalogue calls behind one 90-second global timeout. On a slow panel the sequential big lists took longer than 90s in total, so v1.0.2 counted the full 90 seconds and then failed the login — even though live TV was already usable. There is no global login timeout any more (each call has its own generous 60s timeout + one retry), and the login screen has a Cancel button.
+            - Movies and series load in the background after entry, each independently with its own loading state and retry button. A failure in one section never blocks the others and never kicks you back to login — the tabs show "loading..." until their real counts arrive.
+            - M3U playlists now stream-parse while downloading, line by line, instead of buffering the whole file first — the panel resets huge downloads ("Connection reset"), and the old full-download approach died before a single channel was seen. One full retry on failure; if it still fails, the error plainly says to try Xtream login instead (the proven-working path on this panel).
+            - Kept from v1.0.2: fallback categories rebuilt from loaded items, case-insensitive matching, D-pad focus (Live tab focuses the first category, Movies/Series focus the first poster), and HLS → progressive .ts fallback on player error. Background VOD/series merges no longer yank the Live focus back to "All".
+            Everything else is unchanged from v1.0.2 (including the cleartext-HTTP fix for HTTP-only panels):
             - Live TV: top bar (Z logo + tabs + search), categories sidebar with real counts, channels with red LIVE badges, video info bar with real now/next EPG, bottom now-playing bar with progress and time.
             - Movies/Series: header with count badge, category chips, poster grids with gradient title tiles as fallback when a cover is missing, resume support, season/episode picker for series.
             - 7-day EPG guide (Xtream catch-up included), favorites, recents, saved logins with auto-login.

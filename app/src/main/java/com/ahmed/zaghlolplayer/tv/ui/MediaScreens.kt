@@ -42,9 +42,10 @@ fun MoviesScreen(vm: AppViewModel, state: UiState) {
     val data = state.data
     val movies = vm.visibleMovies()
     // D-pad: focus the first poster when the tab opens, so the arrows move
-    // through the grid right away.
+    // through the grid right away. Re-runs when the background load
+    // finishes, so the focus also lands when the movies arrive late.
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(state.tab) {
+    LaunchedEffect(state.tab, state.vodLoading) {
         if (movies.isNotEmpty()) {
             delay(400)
             firstFocus.requestFocus()
@@ -54,7 +55,7 @@ fun MoviesScreen(vm: AppViewModel, state: UiState) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "الأفلام", color = ZaghlolColors.Text, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.width(12.dp))
-            CountBadge("${movies.size} فيلم")
+            CountBadge(if (state.vodLoading) "جارٍ التحميل..." else "${movies.size} فيلم")
         }
         Spacer(modifier = Modifier.height(12.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -64,7 +65,15 @@ fun MoviesScreen(vm: AppViewModel, state: UiState) {
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        if (movies.isEmpty()) {
+        if (state.vodLoading) {
+            Text(text = "جارٍ تحميل الأفلام...", color = ZaghlolColors.Muted, fontSize = 19.sp)
+        } else if (movies.isEmpty() && state.vodError.isNotEmpty()) {
+            Column {
+                EmptyState("🎬", state.vodError)
+                Spacer(modifier = Modifier.height(16.dp))
+                GhostButton("إعادة المحاولة") { vm.retryVod() }
+            }
+        } else if (movies.isEmpty()) {
             EmptyState("🎬", "لا توجد أفلام")
         } else {
             LazyVerticalGrid(
@@ -95,9 +104,10 @@ fun SeriesScreen(vm: AppViewModel, state: UiState) {
     val data = state.data
     val series = vm.visibleSeries()
     // D-pad: focus the first poster when the tab opens, so the arrows move
-    // through the grid right away.
+    // through the grid right away. Re-runs when the background load
+    // finishes, so the focus also lands when the series arrive late.
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(state.tab) {
+    LaunchedEffect(state.tab, state.seriesLoading) {
         if (series.isNotEmpty()) {
             delay(400)
             firstFocus.requestFocus()
@@ -107,7 +117,7 @@ fun SeriesScreen(vm: AppViewModel, state: UiState) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "المسلسلات", color = ZaghlolColors.Text, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.width(12.dp))
-            CountBadge("${series.size} مسلسل")
+            CountBadge(if (state.seriesLoading) "جارٍ التحميل..." else "${series.size} مسلسل")
         }
         Spacer(modifier = Modifier.height(12.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -117,7 +127,15 @@ fun SeriesScreen(vm: AppViewModel, state: UiState) {
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        if (series.isEmpty()) {
+        if (state.seriesLoading) {
+            Text(text = "جارٍ تحميل المسلسلات...", color = ZaghlolColors.Muted, fontSize = 19.sp)
+        } else if (series.isEmpty() && state.seriesError.isNotEmpty()) {
+            Column {
+                EmptyState("🎞️", state.seriesError)
+                Spacer(modifier = Modifier.height(16.dp))
+                GhostButton("إعادة المحاولة") { vm.retrySeries() }
+            }
+        } else if (series.isEmpty()) {
             EmptyState("🎞️", "لا توجد مسلسلات")
         } else {
             LazyVerticalGrid(
