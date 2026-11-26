@@ -55,11 +55,11 @@ data class SerieItem(
     val name: String,
     val categoryId: String,
     var categoryName: String = "",
-    val cover: String = "",
-    val rating: String = "",
-    val year: String = "",
-    val plot: String = "",
-    val cast: String = "",
+    var cover: String = "",
+    var rating: String = "",
+    var year: String = "",
+    var plot: String = "",
+    var cast: String = "",
     val episodes: MutableMap<String, MutableList<EpisodeItem>> = mutableMapOf()
 )
 

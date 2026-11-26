@@ -69,3 +69,26 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }
+
+// Diagnostic: list what the tv-foundation artifact on the compile classpath
+// actually contains (used to debug "Unresolved reference 'lazy'").
+tasks.register("diagnoseTv") {
+    doLast {
+        val cp = configurations.getByName("debugCompileClasspath")
+        val tvJars = cp.files.filter { it.name.contains("tv-foundation") }
+        println("DIAG tv-foundation jars: $tvJars")
+        if (tvJars.isEmpty()) {
+            println("DIAG: NO tv-foundation jar on debugCompileClasspath!")
+        }
+        for (f in tvJars) {
+            println("DIAG jar: $f (${f.length()} bytes)")
+            java.util.jar.JarFile(f).use { jar ->
+                val lazy = jar.entries().asSequence().map { it.name }
+                    .filter { it.startsWith("androidx/tv/foundation/lazy") }.toList()
+                println("DIAG lazy entries: ${lazy.size}")
+                lazy.take(15).forEach { println("DIAG   $it") }
+                println("DIAG total entries: ${jar.entries().asSequence().count()}")
+            }
+        }
+    }
+}

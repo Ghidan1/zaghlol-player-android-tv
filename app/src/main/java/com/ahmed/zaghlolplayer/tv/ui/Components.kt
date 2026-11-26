@@ -66,8 +66,8 @@ fun PosterTile(
     cover: String,
     resume: Float?,
     isFavorite: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
     val hue = PlaylistService.hueOf(name)
     val gradient = Brush.linearGradient(
@@ -171,8 +171,8 @@ fun ChannelRow(
     channel: Channel,
     active: Boolean,
     isFavorite: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -240,8 +240,8 @@ fun CategoryItem(
     name: String,
     count: Int,
     active: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -290,9 +290,9 @@ fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 fun PrimaryButton(
     text: String,
-    onClick: () -> Unit,
     enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
     Box(
         modifier = modifier
@@ -314,7 +314,7 @@ fun PrimaryButton(
 }
 
 @Composable
-fun GhostButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun GhostButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier = modifier
             .border(1.dp, ZaghlolColors.Border, RoundedCornerShape(12.dp))
