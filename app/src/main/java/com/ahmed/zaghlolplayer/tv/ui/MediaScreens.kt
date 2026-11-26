@@ -15,8 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -24,17 +28,28 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import com.ahmed.zaghlolplayer.tv.AppViewModel
 import com.ahmed.zaghlolplayer.tv.SerieItem
 import com.ahmed.zaghlolplayer.tv.UiState
 import com.ahmed.zaghlolplayer.tv.VodItem
+import kotlinx.coroutines.delay
 
 @Composable
 fun MoviesScreen(vm: AppViewModel, state: UiState) {
     val data = state.data
     val movies = vm.visibleMovies()
+    // D-pad: focus the first poster when the tab opens, so the arrows move
+    // through the grid right away.
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(state.tab) {
+        if (movies.isNotEmpty()) {
+            delay(400)
+            firstFocus.requestFocus()
+        }
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "الأفلام", color = ZaghlolColors.Text, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
@@ -59,13 +74,14 @@ fun MoviesScreen(vm: AppViewModel, state: UiState) {
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(movies) { m ->
+                itemsIndexed(movies) { index, m ->
                     PosterTile(
                         name = m.name,
                         badge = movieBadge(m),
                         cover = m.cover,
                         resume = state.resume["vod:${m.id}"],
                         isFavorite = state.favorites.contains("vod:${m.id}"),
+                        modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
                         onClick = { vm.openMovie(m) }
                     )
                 }
@@ -78,6 +94,15 @@ fun MoviesScreen(vm: AppViewModel, state: UiState) {
 fun SeriesScreen(vm: AppViewModel, state: UiState) {
     val data = state.data
     val series = vm.visibleSeries()
+    // D-pad: focus the first poster when the tab opens, so the arrows move
+    // through the grid right away.
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(state.tab) {
+        if (series.isNotEmpty()) {
+            delay(400)
+            firstFocus.requestFocus()
+        }
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "المسلسلات", color = ZaghlolColors.Text, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
@@ -102,7 +127,7 @@ fun SeriesScreen(vm: AppViewModel, state: UiState) {
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(series) { s ->
+                itemsIndexed(series) { index, s ->
                     val badge = listOfNotNull(
                         s.year.takeIf { it.isNotEmpty() },
                         s.rating.takeIf { it.isNotEmpty() }?.let { "⭐ $it" },
@@ -114,6 +139,7 @@ fun SeriesScreen(vm: AppViewModel, state: UiState) {
                         cover = s.cover,
                         resume = null,
                         isFavorite = state.favorites.contains("series:${s.id}"),
+                        modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
                         onClick = { vm.openSerie(s) }
                     )
                 }

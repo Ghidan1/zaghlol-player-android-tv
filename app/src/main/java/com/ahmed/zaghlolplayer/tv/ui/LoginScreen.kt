@@ -233,7 +233,7 @@ fun LoginScreen(vm: AppViewModel, onPickM3uFile: () -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "Zaghlol Player v1.0.1 — للتلفزيون",
+            text = "Zaghlol Player v1.0.2 — للتلفزيون",
             color = ZaghlolColors.Dim,
             fontSize = 15.sp
         )

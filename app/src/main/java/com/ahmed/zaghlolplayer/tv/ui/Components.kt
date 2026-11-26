@@ -272,9 +272,9 @@ fun CategoryItem(
 }
 
 @Composable
-fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
+fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .background(
                 if (selected) ZaghlolColors.Accent else ZaghlolColors.Panel3,
                 RoundedCornerShape(20.dp)

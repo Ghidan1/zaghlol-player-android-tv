@@ -216,6 +216,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // ---------------- login ----------------
 
     private fun startBusy(): Job {
+        busyJob?.cancel()
         _state.update { it.copy(busy = true, busySecs = 0, loginError = "", testReport = "", testOk = null) }
         val job = viewModelScope.launch {
             var s = 0
@@ -343,11 +344,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     id = UUID.randomUUID().toString(), name = "Xtream",
                     kind = LoginKind.XTREAM, server = server, username = user.trim(), password = pass
                 )
-                // Hard global timeout: the whole login must finish in 25s.
+                // Hard global timeout: the whole login must finish in 90s.
+                // This panel is slow — a previous login took ~55s — so 25s was
+                // cutting the big catalogue downloads short.
                 val data = try {
-                    withTimeout(25_000) { client.loadAll(login) }
+                    withTimeout(90_000) { client.loadAll(login) }
                 } catch (e: TimeoutCancellationException) {
-                    _state.update { it.copy(loginError = "انتهت المهلة (25 ثانية) — السيرفر بطيء أو لا يرد. جرّب «اختبار الاتصال» أولاً.") }
+                    _state.update { it.copy(loginError = "انتهت المهلة (90 ثانية) — السيرفر بطيء أو لا يرد. جرّب «اختبار الاتصال» أولاً.") }
                     return@launch
                 }
                 if (data.channels.isEmpty() && data.movies.isEmpty() && data.series.isEmpty()) {
@@ -436,6 +439,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         xmlTvLoaded = false
         val nCh = data.channels.size
         val nCat = data.liveCategories.size
+        val nMov = data.movies.size
+        val nSer = data.series.size
         _state.update {
             it.copy(
                 screen = Screen.MAIN, tab = AppTab.LIVE, data = data, xtream = xtream,
@@ -446,7 +451,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 loginError = "", focusMode = false
             )
         }
-        showToast("تم تحميل $nCh قناة في $nCat تصنيف")
+        showToast("تم تحميل $nCh قناة في $nCat تصنيف • $nMov فيلم • $nSer مسلسل")
         val first = visibleChannels().firstOrNull()
         if (first != null) playChannel(first)
     }
@@ -518,7 +523,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val d = _state.value.data ?: return emptyList()
         val st = _state.value
         var list = d.movies
-        if (st.movieCat != "all") list = list.filter { it.categoryId == st.movieCat }
+        if (st.movieCat != "all") list = list.filter { it.categoryId.equals(st.movieCat, ignoreCase = true) }
         if (st.search.isNotBlank()) {
             val q = st.search.trim().lowercase(Locale.ROOT)
             list = list.filter { it.name.lowercase(Locale.ROOT).contains(q) }
@@ -530,7 +535,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val d = _state.value.data ?: return emptyList()
         val st = _state.value
         var list = d.series
-        if (st.seriesCat != "all") list = list.filter { it.categoryId == st.seriesCat }
+        if (st.seriesCat != "all") list = list.filter { it.categoryId.equals(st.seriesCat, ignoreCase = true) }
         if (st.search.isNotBlank()) {
             val q = st.search.trim().lowercase(Locale.ROOT)
             list = list.filter { it.name.lowercase(Locale.ROOT).contains(q) }

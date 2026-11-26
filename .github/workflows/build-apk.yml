@@ -48,20 +48,18 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Publish release v1.0.1
+      - name: Publish release v1.0.2
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.1
-          name: Zaghlol Player for Android TV v1.0.1
+          tag_name: v1.0.2
+          name: Zaghlol Player for Android TV v1.0.2
           body: |
-            Zaghlol Player for Android TV v1.0.1 — same UI and functions as v1.0.0, plus one fix: plain HTTP (cleartext) traffic is now allowed, so HTTP-only IPTV panels can log in (previously the app refused with "Cleartext HTTP traffic not permitted"). Everything else is unchanged from v1.0.0:
-            - Live TV: top bar (Z logo + tabs + search), categories sidebar with real counts, channels with red LIVE badges, video info bar with real now/next EPG, bottom now-playing bar with progress and time.
-            - Movies/Series: header with count badge, category chips, poster grids with gradient title tiles as fallback when a cover is missing, resume support, season/episode picker for series.
-            - 7-day EPG guide (Xtream catch-up included), favorites, recents, saved logins with auto-login.
-            - Login: M3U link, M3U file, Xtream Codes, or free demo channels. Connection test on the login forms with real Arabic error messages.
-            - Playback: HLS via ExoPlayer (Media3). M3U VOD entries are classified into Movies, series markers into Series.
-            The player contains no channels — use your own legal IPTV playlist/subscription.
-            Sideload the APK on your Android TV (Downloader app, USB stick, or Send Files to TV).
+            Zaghlol Player for Android TV v1.0.2 — fixes for three bugs found on a real Sharp Android TV:
+            - Categories no longer come back empty: the 6 catalogue calls now load in two phases (small category calls first, then the big lists one at a time) with a retry each, longer timeouts, and a fallback that rebuilds missing categories from the loaded channels/movies/series — the sidebar always shows categories with real counts.
+            - Series no longer show 0: same loading fix, so the ~15,000 series on an Xtream subscription actually load with covers (gradient title tiles as fallback).
+            - D-pad remote now works: the Live tab focuses the first category when the data loads, Movies/Series focus the first poster, and Guide/Settings focus their first control — arrows move through the lists and the lists scroll with the focus. OK selects/plays, Back behaves as before.
+            - Bonus: if an HLS (.m3u8) live stream fails to play, the player retries once via the plain .ts stream, and a real error code is shown instead of a black screen.
+            Everything else is unchanged from v1.0.1 (including the cleartext-HTTP fix for HTTP-only panels):
             - Live TV: top bar (Z logo + tabs + search), categories sidebar with real counts, channels with red LIVE badges, video info bar with real now/next EPG, bottom now-playing bar with progress and time.
             - Movies/Series: header with count badge, category chips, poster grids with gradient title tiles as fallback when a cover is missing, resume support, season/episode picker for series.
             - 7-day EPG guide (Xtream catch-up included), favorites, recents, saved logins with auto-login.

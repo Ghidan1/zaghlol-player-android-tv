@@ -14,19 +14,24 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyRow
 import com.ahmed.zaghlolplayer.tv.AppViewModel
 import com.ahmed.zaghlolplayer.tv.UiState
 import com.ahmed.zaghlolplayer.tv.fmtTime
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -41,6 +46,15 @@ fun GuideScreen(vm: AppViewModel, state: UiState) {
     LaunchedEffect(data) {
         if (state.guideChannelId.isEmpty() && channels.isNotEmpty()) {
             vm.loadGuide(channels[0].id, 0)
+        }
+    }
+
+    // D-pad: focus the first channel chip when the tab opens.
+    val guideFocus = remember { FocusRequester() }
+    LaunchedEffect(state.tab) {
+        if (channels.isNotEmpty()) {
+            delay(400)
+            guideFocus.requestFocus()
         }
     }
 
@@ -60,8 +74,11 @@ fun GuideScreen(vm: AppViewModel, state: UiState) {
 
         // Channel selector
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(channels) { ch ->
-                Chip(ch.name, state.guideChannelId == ch.id) { vm.loadGuide(ch.id, state.guideDay) }
+            itemsIndexed(channels) { index, ch ->
+                Chip(
+                    ch.name, state.guideChannelId == ch.id,
+                    modifier = if (index == 0) Modifier.focusRequester(guideFocus) else Modifier
+                ) { vm.loadGuide(ch.id, state.guideDay) }
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
@@ -268,6 +285,12 @@ fun FavoritesScreen(vm: AppViewModel, state: UiState) {
 @Composable
 fun SettingsScreen(vm: AppViewModel, state: UiState) {
     var epgUrl by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(state.epgUrl) }
+    // D-pad: focus the first button when the tab opens.
+    val settingsFocus = remember { FocusRequester() }
+    LaunchedEffect(state.tab) {
+        delay(300)
+        settingsFocus.requestFocus()
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Text(text = "الإعدادات", color = ZaghlolColors.Text, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(modifier = Modifier.height(20.dp))
@@ -277,7 +300,7 @@ fun SettingsScreen(vm: AppViewModel, state: UiState) {
         LoginTextField(epgUrl, { epgUrl = it }, "https://example.com/epg.xml")
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PrimaryButton("حفظ الرابط") { vm.setEpgUrl(epgUrl) }
+            PrimaryButton("حفظ الرابط", modifier = Modifier.focusRequester(settingsFocus)) { vm.setEpgUrl(epgUrl) }
             GhostButton("تحديث دليل البرامج") { vm.reloadEpg() }
         }
         if (state.epgReloadMsg.isNotEmpty()) {
@@ -297,7 +320,7 @@ fun SettingsScreen(vm: AppViewModel, state: UiState) {
         Text(text = "حول التطبيق", color = ZaghlolColors.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Zaghlol Player v1.0.1 — نسخة Android TV\nنفس واجهة ووظائف نسخة الويندوز v2.0.3\nبيانات الدخول محفوظة على جهاز التلفزيون فقط.",
+            text = "Zaghlol Player v1.0.2 — نسخة Android TV\nنفس واجهة ووظائف نسخة الويندوز v2.0.3\nبيانات الدخول محفوظة على جهاز التلفزيون فقط.",
             color = ZaghlolColors.Muted,
             fontSize = 17.sp,
             lineHeight = 26.sp

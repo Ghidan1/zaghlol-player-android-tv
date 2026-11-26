@@ -45,6 +45,10 @@ class TvPlayer(context: Context) {
     var onFirstReady: (() -> Unit)? = null
     private var readyFiredFor: String? = null
 
+    /** Media ids that already used their one .ts fallback, so a failing stream
+     *  can never loop between HLS and progressive retries. */
+    private val tsFallbackTried = mutableSetOf<String?>()
+
     init {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -63,7 +67,18 @@ class TvPlayer(context: Context) {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                _errorAr.value = "تعذّر تشغيل هذا البث — قد يكون السيرفر مشغولاً أو الرابط منتهياً."
+                val mediaId = player.currentMediaItem?.mediaId
+                val uri = player.currentMediaItem?.localConfiguration?.uri?.toString() ?: ""
+                // One retry: some panels serve a .m3u8 that ExoPlayer's HLS
+                // source rejects, while the plain .ts stream plays fine as a
+                // progressive MPEG-TS stream. Try it once before giving up.
+                if (mediaId !in tsFallbackTried && uri.contains(".m3u8", ignoreCase = true)) {
+                    tsFallbackTried.add(mediaId)
+                    val tsUrl = uri.replace(".m3u8", ".ts", ignoreCase = true)
+                    playProgressive(tsUrl, mediaId ?: "fallback")
+                    return
+                }
+                _errorAr.value = "تعذّر تشغيل هذا البث — جرّب قناة أخرى (رمز الخطأ ${error.errorCode})."
             }
         })
     }

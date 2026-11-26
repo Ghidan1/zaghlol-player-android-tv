@@ -4,6 +4,7 @@ import android.util.Xml
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -369,7 +370,7 @@ object PlaylistService {
         }
 
         private suspend fun getJson(url: String): JSONObject? {
-            val r = fetchText(url, 15)
+            val r = fetchText(url, 30)
             if (!r.ok || r.text.isNullOrBlank()) return null
             return try {
                 JSONObject(r.text)
@@ -379,7 +380,7 @@ object PlaylistService {
         }
 
         private suspend fun getJsonArray(url: String): JSONArray? {
-            val r = fetchText(url, 15)
+            val r = fetchText(url, 30)
             if (!r.ok || r.text.isNullOrBlank()) return null
             return try {
                 JSONArray(r.text)
@@ -429,29 +430,86 @@ object PlaylistService {
             return list
         }
 
-        /** The 6 catalogue calls are independent — run them in parallel. */
+        /** One retry: a slow panel often drops a single request in a burst. */
+        private suspend fun getCategoriesRetry(action: String): List<Category> {
+            val first = getCategories(action)
+            if (first.isNotEmpty()) return first
+            delay(800)
+            return getCategories(action)
+        }
+
+        private suspend fun getLiveStreamsRetry(): List<Channel> {
+            val first = getLiveStreams()
+            if (first.isNotEmpty()) return first
+            delay(800)
+            return getLiveStreams()
+        }
+
+        private suspend fun getVodStreamsRetry(): List<VodItem> {
+            val first = getVodStreams()
+            if (first.isNotEmpty()) return first
+            delay(800)
+            return getVodStreams()
+        }
+
+        private suspend fun getSeriesRetry(): List<SerieItem> {
+            val first = getSeries()
+            if (first.isNotEmpty()) return first
+            delay(800)
+            return getSeries()
+        }
+
+        /** Last-resort categories: derive them from the items themselves so the
+         *  sidebar / chips are never blank when the items did load. */
+        private fun deriveCategories(ids: List<String>): List<Category> {
+            val seen = linkedMapOf<String, String>() // canonical key -> first-seen spelling
+            for (raw in ids) {
+                val id = raw.trim()
+                if (id.isEmpty()) continue
+                seen.getOrPut(id.lowercase(Locale.ROOT)) { id }
+            }
+            return seen.values.map { Category(it, it) }
+        }
+
+        private fun nameFor(map: Map<String, String>, id: String): String {
+            map[id]?.let { return it }
+            for ((k, v) in map) if (k.equals(id, ignoreCase = true)) return v
+            return ""
+        }
+
+        /**
+         * The 6 catalogue calls, in two phases: the 3 small category calls in
+         * parallel, then the 3 big lists one at a time. A slow panel chokes on
+         * all six at once and silently drops some of them — that is how the
+         * categories came back empty while 11,396 channels loaded, and the
+         * series list came back 0. Each call gets one retry, and a missing
+         * categories list is rebuilt from the items themselves.
+         */
         suspend fun loadAll(login: LoginProfile): PlaylistData = coroutineScope {
-            val tLiveCats = async { getCategories("get_live_categories") }
-            val tLive = async { getLiveStreams() }
-            val tVodCats = async { getCategories("get_vod_categories") }
-            val tVod = async { getVodStreams() }
-            val tSerCats = async { getCategories("get_series_categories") }
-            val tSer = async { getSeries() }
-            val liveCats = tLiveCats.await()
-            val live = tLive.await()
-            val vodCats = tVodCats.await()
-            val vod = tVod.await()
-            val serCats = tSerCats.await()
-            val ser = tSer.await()
+            val tLiveCats = async { getCategoriesRetry("get_live_categories") }
+            val tVodCats = async { getCategoriesRetry("get_vod_categories") }
+            val tSerCats = async { getCategoriesRetry("get_series_categories") }
+            var liveCats = tLiveCats.await()
+            var vodCats = tVodCats.await()
+            var serCats = tSerCats.await()
+            val live = getLiveStreamsRetry()
+            val vod = getVodStreamsRetry()
+            val ser = getSeriesRetry()
+            if (liveCats.isEmpty() && live.isNotEmpty())
+                liveCats = deriveCategories(live.map { it.categoryId })
+            if (vodCats.isEmpty() && vod.isNotEmpty())
+                vodCats = deriveCategories(vod.map { it.categoryId })
+            if (serCats.isEmpty() && ser.isNotEmpty())
+                serCats = deriveCategories(ser.map { it.categoryId })
             val catNames = liveCats.associate { it.id to it.name }
-            for (ch in live) ch.categoryName = catNames[ch.categoryId] ?: ""
+            for (ch in live) ch.categoryName = nameFor(catNames, ch.categoryId)
             val vodNames = vodCats.associate { it.id to it.name }
-            for (m in vod) m.categoryName = vodNames[m.categoryId] ?: ""
+            for (m in vod) m.categoryName = nameFor(vodNames, m.categoryId)
             val serNames = serCats.associate { it.id to it.name }
-            for (s in ser) s.categoryName = serNames[s.categoryId] ?: ""
-            for (c in liveCats) c.count = live.count { it.categoryId == c.id }
-            for (c in vodCats) c.count = vod.count { it.categoryId == c.id }
-            for (c in serCats) c.count = ser.count { it.categoryId == c.id }
+            for (s in ser) s.categoryName = nameFor(serNames, s.categoryId)
+            for (c in liveCats) c.count = live.count { it.categoryId.equals(c.id, ignoreCase = true) }
+            for (c in vodCats) c.count = vod.count { it.categoryId.equals(c.id, ignoreCase = true) }
+            for (c in serCats) c.count = ser.count { it.categoryId.equals(c.id, ignoreCase = true) }
             PlaylistData(
                 login = login, liveCategories = liveCats, channels = live,
                 vodCategories = vodCats, movies = vod,

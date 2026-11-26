@@ -19,6 +19,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -49,6 +52,7 @@ import com.ahmed.zaghlolplayer.tv.AppViewModel
 import com.ahmed.zaghlolplayer.tv.PlayKind
 import com.ahmed.zaghlolplayer.tv.UiState
 import com.ahmed.zaghlolplayer.tv.fmtClock
+import kotlinx.coroutines.delay
 
 private val TABS = listOf(
     AppTab.LIVE to "مباشر",
@@ -226,6 +230,17 @@ fun MainScreen(vm: AppViewModel) {
 @Composable
 fun LiveView(vm: AppViewModel, state: UiState) {
     val data = state.data
+    // D-pad: put the focus in the sidebar the moment the data arrives, so the
+    // remote's arrows move through categories and channels right away. Until
+    // v1.0.2 nothing ever requested focus here, so DOWN from the top bar
+    // landed on the big video box (or nowhere) and the lists never moved.
+    val catFocus = remember { FocusRequester() }
+    LaunchedEffect(data) {
+        if (data != null && data.channels.isNotEmpty()) {
+            delay(500)
+            catFocus.requestFocus()
+        }
+    }
     Row(modifier = Modifier.fillMaxSize()) {
         if (!state.focusMode) {
             // ---- Sidebar: categories, then channels ----
@@ -247,7 +262,10 @@ fun LiveView(vm: AppViewModel, state: UiState) {
                 val total = data?.channels?.size ?: 0
                 LazyColumn(modifier = Modifier.weight(0.38f)) {
                     item {
-                        CategoryItem("الكل", total, state.currentCat == "all") { vm.selectCategory("all") }
+                        CategoryItem(
+                            "الكل", total, state.currentCat == "all",
+                            modifier = Modifier.focusRequester(catFocus)
+                        ) { vm.selectCategory("all") }
                     }
                     items(cats) { cat ->
                         CategoryItem(cat.name, cat.count, state.currentCat == cat.id) {
