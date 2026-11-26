@@ -42,8 +42,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import com.ahmed.zaghlolplayer.tv.AppTab
 import com.ahmed.zaghlolplayer.tv.AppViewModel
 import com.ahmed.zaghlolplayer.tv.PlayKind
@@ -245,7 +245,7 @@ fun LiveView(vm: AppViewModel, state: UiState) {
                 )
                 val cats = data?.liveCategories ?: emptyList()
                 val total = data?.channels?.size ?: 0
-                TvLazyColumn(modifier = Modifier.weight(0.38f)) {
+                LazyColumn(modifier = Modifier.weight(0.38f)) {
                     item {
                         CategoryItem("الكل", total, state.currentCat == "all") { vm.selectCategory("all") }
                     }
@@ -267,7 +267,7 @@ fun LiveView(vm: AppViewModel, state: UiState) {
                 if (channels.isEmpty()) {
                     EmptyState("📺", "لا توجد قنوات مطابقة")
                 } else {
-                    TvLazyColumn(modifier = Modifier.weight(0.62f)) {
+                    LazyColumn(modifier = Modifier.weight(0.62f)) {
                         items(channels) { ch ->
                             ChannelRow(
                                 channel = ch,

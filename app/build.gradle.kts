@@ -1,5 +1,3 @@
-import java.util.jar.JarFile
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -56,10 +54,6 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
 
-    // Jetpack Compose for TV (focus handling, TV lazy layouts)
-    implementation("androidx.tv:tv-foundation:1.0.0")
-    implementation("androidx.tv:tv-material:1.0.0")
-
     // ExoPlayer (Media3) — HLS playback
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
@@ -70,27 +64,4 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-}
-
-// Diagnostic: list what the tv-foundation artifact on the compile classpath
-// actually contains (used to debug "Unresolved reference 'lazy'").
-tasks.register("diagnoseTv") {
-    doLast {
-        val cp = configurations.getByName("debugCompileClasspath")
-        val tvJars = cp.files.filter { it.name.contains("tv-foundation") }
-        println("DIAG tv-foundation jars: $tvJars")
-        if (tvJars.isEmpty()) {
-            println("DIAG: NO tv-foundation jar on debugCompileClasspath!")
-        }
-        for (f in tvJars) {
-            println("DIAG jar: $f (${f.length()} bytes)")
-            JarFile(f).use { jar ->
-                val lazyEntries = jar.entries().asSequence().map { it.name }
-                    .filter { it.startsWith("androidx/tv/foundation/lazy") }.toList()
-                println("DIAG lazy entries: ${lazyEntries.size}")
-                lazyEntries.take(15).forEach { println("DIAG   $it") }
-                println("DIAG total entries: ${jar.entries().asSequence().count()}")
-            }
-        }
-    }
 }

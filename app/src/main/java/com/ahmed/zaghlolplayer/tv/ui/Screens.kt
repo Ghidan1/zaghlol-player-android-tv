@@ -21,9 +21,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.items
-import androidx.tv.foundation.lazy.list.TvLazyRow
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import com.ahmed.zaghlolplayer.tv.AppViewModel
 import com.ahmed.zaghlolplayer.tv.UiState
 import com.ahmed.zaghlolplayer.tv.fmtTime
@@ -59,7 +59,7 @@ fun GuideScreen(vm: AppViewModel, state: UiState) {
         Spacer(modifier = Modifier.height(14.dp))
 
         // Channel selector
-        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(channels) { ch ->
                 Chip(ch.name, state.guideChannelId == ch.id) { vm.loadGuide(ch.id, state.guideDay) }
             }
@@ -68,7 +68,7 @@ fun GuideScreen(vm: AppViewModel, state: UiState) {
 
         // Day selector (today + 6 days)
         val dayFmt = SimpleDateFormat("EEEE d/M", Locale("ar"))
-        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items((0..6).toList()) { day ->
                 val cal = Calendar.getInstance()
                 cal.add(Calendar.DAY_OF_YEAR, day)
@@ -90,7 +90,7 @@ fun GuideScreen(vm: AppViewModel, state: UiState) {
             EmptyState("📅", "لا توجد برامج لهذا اليوم — جرّب قناة أخرى أو حدّث دليل البرامج من الإعدادات")
         } else {
             val now = System.currentTimeMillis()
-            TvLazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(state.guidePrograms) { prog ->
                     val isCurrent = prog.startMs <= now && prog.endMs > now
                     Row(
@@ -147,7 +147,7 @@ fun FavoritesScreen(vm: AppViewModel, state: UiState) {
             EmptyState("⭐", "لا توجد عناصر مفضلة بعد — اضغط على النجمة بجانب أي قناة أو فيلم")
             return@Column
         }
-        androidx.tv.foundation.lazy.list.TvLazyColumn(
+        androidx.compose.foundation.lazy.LazyColumn(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxSize()
         ) {

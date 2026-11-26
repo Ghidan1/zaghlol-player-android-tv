@@ -21,11 +21,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.foundation.lazy.grid.TvGridCells
-import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
-import androidx.tv.foundation.lazy.grid.items
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import com.ahmed.zaghlolplayer.tv.AppViewModel
 import com.ahmed.zaghlolplayer.tv.SerieItem
 import com.ahmed.zaghlolplayer.tv.UiState
@@ -42,7 +42,7 @@ fun MoviesScreen(vm: AppViewModel, state: UiState) {
             CountBadge("${movies.size} فيلم")
         }
         Spacer(modifier = Modifier.height(12.dp))
-        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Chip("الكل", state.movieCat == "all") { vm.selectMovieCategory("all") } }
             items(data?.vodCategories ?: emptyList()) { cat ->
                 Chip("${cat.name} (${cat.count})", state.movieCat == cat.id) { vm.selectMovieCategory(cat.id) }
@@ -52,8 +52,8 @@ fun MoviesScreen(vm: AppViewModel, state: UiState) {
         if (movies.isEmpty()) {
             EmptyState("🎬", "لا توجد أفلام")
         } else {
-            TvLazyVerticalGrid(
-                columns = TvGridCells.Fixed(4),
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
                 contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -85,7 +85,7 @@ fun SeriesScreen(vm: AppViewModel, state: UiState) {
             CountBadge("${series.size} مسلسل")
         }
         Spacer(modifier = Modifier.height(12.dp))
-        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Chip("الكل", state.seriesCat == "all") { vm.selectSeriesCategory("all") } }
             items(data?.seriesCategories ?: emptyList()) { cat ->
                 Chip("${cat.name} (${cat.count})", state.seriesCat == cat.id) { vm.selectSeriesCategory(cat.id) }
@@ -95,8 +95,8 @@ fun SeriesScreen(vm: AppViewModel, state: UiState) {
         if (series.isEmpty()) {
             EmptyState("🎞️", "لا توجد مسلسلات")
         } else {
-            TvLazyVerticalGrid(
-                columns = TvGridCells.Fixed(4),
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
                 contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -222,7 +222,7 @@ fun SeriesDialog(vm: AppViewModel, state: UiState, serie: SerieItem) {
             }
             Spacer(modifier = Modifier.height(16.dp))
             if (seasons.isNotEmpty()) {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(seasons) { s ->
                         Chip("الموسم $s", currentSeason == s) { vm.selectSerieSeason(s) }
                     }
@@ -232,7 +232,7 @@ fun SeriesDialog(vm: AppViewModel, state: UiState, serie: SerieItem) {
             if (episodes.isEmpty()) {
                 EmptyState("🎞️", "لا توجد حلقات في هذا الموسم")
             } else {
-                androidx.tv.foundation.lazy.list.TvLazyColumn(
+                androidx.compose.foundation.lazy.LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
