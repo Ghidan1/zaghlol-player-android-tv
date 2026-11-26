@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.ahmed.zaghlolplayer.tv"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.ahmed.zaghlolplayer.tv"
