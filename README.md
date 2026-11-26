@@ -7,8 +7,7 @@ via ExoPlayer (Media3).
 
 ## Features (parity with Windows v2.0.3)
 
-- **Login**: M3U link, M3U file (Storage Access Framework), Xtream Codes
-  (server + username + password), or free demo channels. Saved logins stay
+- **Login**: M3U link, M3U file (Storage Access Framework), Xtream Codes  (server + username + password), or free demo channels. Saved logins stay
   on the device with auto-login; logout / wipe data in Settings.
 - **Live TV**: top bar (Z logo, tabs, search), categories sidebar with real
   counts, channels list with red LIVE badges, video info bar with the real
