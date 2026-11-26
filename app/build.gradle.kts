@@ -1,3 +1,5 @@
+import java.util.jar.JarFile
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -82,11 +84,11 @@ tasks.register("diagnoseTv") {
         }
         for (f in tvJars) {
             println("DIAG jar: $f (${f.length()} bytes)")
-            java.util.jar.JarFile(f).use { jar ->
-                val lazy = jar.entries().asSequence().map { it.name }
+            JarFile(f).use { jar ->
+                val lazyEntries = jar.entries().asSequence().map { it.name }
                     .filter { it.startsWith("androidx/tv/foundation/lazy") }.toList()
-                println("DIAG lazy entries: ${lazy.size}")
-                lazy.take(15).forEach { println("DIAG   $it") }
+                println("DIAG lazy entries: ${lazyEntries.size}")
+                lazyEntries.take(15).forEach { println("DIAG   $it") }
                 println("DIAG total entries: ${jar.entries().asSequence().count()}")
             }
         }
